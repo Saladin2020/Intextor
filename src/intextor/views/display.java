@@ -16,8 +16,6 @@ public class display extends CallClass {
 
         setup("primeNumber");
         proc("primeNumber");
-        setup("i");
-        proc("i");
     }
 
 }
