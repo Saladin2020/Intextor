@@ -58,6 +58,10 @@ public final class ExecutionEngine implements AutoCloseable, ModuleInvoker {
         return events;
     }
 
+    ModuleRegistry moduleRegistry() {
+        return registry;
+    }
+
     public ModuleLifecycleManager.State getModuleState(String moduleName) {
         ensureOpen();
         return lifecycle.getState(moduleName);

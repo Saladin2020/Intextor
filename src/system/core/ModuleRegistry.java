@@ -1,6 +1,7 @@
 package system.core;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,24 @@ public final class ModuleRegistry {
     public IntextorModule unregister(String name) {
         requireName(name);
         return modules.remove(name);
+    }
+
+    public List<IntextorModule> findByCapability(String capability) {
+        if (capability == null || capability.trim().isEmpty()) {
+            throw new IllegalArgumentException("Capability must not be blank");
+        }
+        List<IntextorModule> matches = new ArrayList<IntextorModule>();
+        for (IntextorModule module : modules.values()) {
+            if (!(module instanceof CapabilityAwareModule)) {
+                continue;
+            }
+            Collection<String> capabilities = ((CapabilityAwareModule) module).getCapabilities();
+            if (capabilities != null && capabilities.contains(capability)) {
+                matches.add(module);
+            }
+        }
+        Collections.sort(matches, (left, right) -> left.getName().compareTo(right.getName()));
+        return Collections.unmodifiableList(matches);
     }
 
     private static void requireName(String name) {

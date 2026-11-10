@@ -5,19 +5,25 @@
  */
 package intextor.controllers;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import system.core.ExecutionContext;
-import system.core.IntextorModule;
+import system.core.CapabilityAwareModule;
 
 /**
  *
  * @author User
  */
-public class primeNumber implements IntextorModule {
+public class primeNumber implements CapabilityAwareModule {
 
     @Override
     public String getName() {
         return "primeNumber";
+    }
+
+    @Override
+    public List<String> getCapabilities() {
+        return Collections.singletonList("math.primes.generate");
     }
 
     @Override

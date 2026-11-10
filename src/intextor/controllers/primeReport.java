@@ -1,14 +1,21 @@
 package intextor.controllers;
 
 import java.util.List;
+import java.util.Collections;
+import java.util.Collection;
 import system.core.ExecutionContext;
-import system.core.IntextorModule;
+import system.core.CapabilityAwareModule;
 
 /** Example coordinator module that calls primeNumber and summarizes its output. */
-public final class primeReport implements IntextorModule {
+public final class primeReport implements CapabilityAwareModule {
     @Override
     public String getName() {
         return "primeReport";
+    }
+
+    @Override
+    public Collection<String> getCapabilities() {
+        return Collections.singletonList("math.primes.summarize");
     }
 
     @Override

@@ -54,7 +54,13 @@ WorkflowResult result = engine.executeWorkflow(plan, new ExecutionContext());
 
 Workflow steps execute in dependency order and stop at the first failed step. Independent work can also be launched explicitly with `executeParallel`.
 
-The current direction is Intextor 2.0, a cooperative modular runtime. Autonomous goal selection and AI planning remain a later design phase; they are not needed for module coordination to work.
+The current direction builds from cooperative module execution toward structured goal-driven planning. Free-form natural-language interpretation is a separate concern from the deterministic planner.
+
+## Goal-driven runtime
+
+Modules can implement `CapabilityAwareModule` to declare stable capability IDs such as `math.primes.generate`. `Goal` describes a request with an ordered list of required capabilities, input values, and optional preferred modules. `CapabilityDecisionEngine` discovers a unique provider for each capability and produces a dependency-ordered workflow. If several modules provide the same capability, the goal must specify a preferred module rather than relying on an arbitrary choice.
+
+`AutonomousRuntime.plan(goal)` supports inspection before execution; `execute(goal)` plans and runs the goal, returning a `GoalResult` with the selected workflow and per-step outputs. The default planner is deterministic and uses the structured capability list. Implement `DecisionEngine` to plug in a richer planner, including a future AI-backed strategy, without changing module execution or workflow APIs.
 
 Modules start automatically on their first execution. Call `startModule`, `pauseModule`, `resumeModule`, `stopModule`, or `restartModule` for explicit lifecycle control. Pause blocks new executions and waits for current executions to finish before calling `onPause`; it does not suspend a running Java thread. Stop uses the same drain behavior before calling `onStop`. Modules that need resource hooks can implement `LifecycleAwareModule` and override `onStart`, `onPause`, `onResume`, and `onStop`.
 
