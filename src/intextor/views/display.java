@@ -6,10 +6,15 @@
 package intextor.views;
 
 import intextor.controllers.primeNumber;
+import intextor.controllers.primeReport;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import system.core.ExecutionContext;
+import system.core.AutonomousRuntime;
+import system.core.CapabilityDecisionEngine;
 import system.core.ExecutionEngine;
+import system.core.Goal;
+import system.core.GoalResult;
 import system.core.ModuleRegistry;
 
 /**
@@ -20,11 +25,19 @@ public class display {
     public display() throws Exception {
         ModuleRegistry registry = new ModuleRegistry();
         registry.register(new primeNumber());
+        registry.register(new primeReport());
         try (ExecutionEngine engine = new ExecutionEngine(registry)) {
-            ExecutionContext context = new ExecutionContext(Collections.<String, Object>singletonMap("limit", 100));
-            engine.execute("primeNumber", context);
-            List<Integer> primes = context.get("primes", List.class);
-            System.out.println("Prime numbers up to 100: " + primes);
+            AutonomousRuntime runtime = new AutonomousRuntime(engine, new CapabilityDecisionEngine());
+            Goal goal = new Goal("Summarize prime numbers through 100",
+                    Arrays.asList("math.primes.summarize"),
+                    Collections.<String, Object>singletonMap("limit", 100));
+            GoalResult result = runtime.execute(goal);
+            if (!result.isSuccessful()) {
+                throw new IllegalStateException("Goal execution failed");
+            }
+            List<?> primes = (List<?>) result.getWorkflowResult().getOutput().get("primes");
+            Integer primeCount = (Integer) result.getWorkflowResult().getOutput().get("primeCount");
+            System.out.println("Found " + primeCount + " prime numbers up to 100: " + primes);
         }
     }
 }
