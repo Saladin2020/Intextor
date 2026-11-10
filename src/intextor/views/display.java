@@ -35,7 +35,7 @@ public class display {
             if (!result.isSuccessful()) {
                 throw new IllegalStateException("Goal execution failed");
             }
-            List<Integer> primes = (List<Integer>) result.getWorkflowResult().getOutput().get("primes");
+            List<?> primes = (List<?>) result.getWorkflowResult().getOutput().get("primes");
             Integer primeCount = (Integer) result.getWorkflowResult().getOutput().get("primeCount");
             System.out.println("Found " + primeCount + " prime numbers up to 100: " + primes);
         }
