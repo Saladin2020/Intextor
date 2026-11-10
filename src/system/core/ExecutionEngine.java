@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,7 +24,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /** Runs registered modules synchronously, asynchronously, in parallel, or later. */
-public final class ExecutionEngine implements AutoCloseable {
+public final class ExecutionEngine implements AutoCloseable, ModuleInvoker {
     private static final Logger LOGGER = Logger.getLogger(ExecutionEngine.class.getName());
     private final ModuleRegistry registry;
     private final ModuleEventBus events;
@@ -93,24 +95,66 @@ public final class ExecutionEngine implements AutoCloseable {
     }
 
     public void execute(String moduleName, ExecutionContext context) throws Exception {
+        ExecutionResult result = runModule(moduleName, context);
+        if (!result.isSuccessful()) {
+            Throwable error = result.getError();
+            if (error instanceof Exception) {
+                throw (Exception) error;
+            }
+            if (error instanceof Error) {
+                throw (Error) error;
+            }
+            throw new IllegalStateException("Module execution failed: " + moduleName);
+        }
+    }
+
+    @Override
+    public ExecutionResult invoke(String moduleName, ExecutionContext context) {
+        return runModule(moduleName, context);
+    }
+
+    private ExecutionResult runModule(String moduleName, ExecutionContext context) {
         ensureOpen();
+        if (moduleName == null || moduleName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Module name must not be blank");
+        }
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
         }
-        IntextorModule module = lifecycle.beginExecution(moduleName);
+        long startedAt = System.currentTimeMillis();
+        IntextorModule module;
+        try {
+            module = lifecycle.beginExecution(moduleName);
+        } catch (Exception exception) {
+            events.publish(new ModuleEvent(ModuleEvent.Type.FAILED, moduleName, context.getExecutionId(), exception));
+            return failedResult(moduleName, context, startedAt, exception);
+        } catch (Error error) {
+            events.publish(new ModuleEvent(ModuleEvent.Type.FAILED, moduleName, context.getExecutionId(), error));
+            return failedResult(moduleName, context, startedAt, error);
+        }
+        ModuleInvoker previousInvoker = context.bindInvoker(this);
         try {
             events.publish(new ModuleEvent(ModuleEvent.Type.STARTED, moduleName, context.getExecutionId(), null));
             module.execute(context);
             events.publish(new ModuleEvent(ModuleEvent.Type.SUCCEEDED, moduleName, context.getExecutionId(), null));
+            return new ExecutionResult(moduleName, context.getExecutionId(), context.getParentExecutionId(),
+                    ExecutionResult.Status.SUCCEEDED, startedAt, System.currentTimeMillis(), context.snapshot(), null);
         } catch (Exception exception) {
             events.publish(new ModuleEvent(ModuleEvent.Type.FAILED, moduleName, context.getExecutionId(), exception));
-            throw exception;
+            return failedResult(moduleName, context, startedAt, exception);
         } catch (Error error) {
             events.publish(new ModuleEvent(ModuleEvent.Type.FAILED, moduleName, context.getExecutionId(), error));
-            throw error;
+            return failedResult(moduleName, context, startedAt, error);
         } finally {
+            context.restoreInvoker(previousInvoker);
             lifecycle.endExecution(moduleName);
         }
+    }
+
+    private static ExecutionResult failedResult(String moduleName, ExecutionContext context,
+            long startedAt, Throwable error) {
+        return new ExecutionResult(moduleName, context.getExecutionId(), context.getParentExecutionId(),
+                ExecutionResult.Status.FAILED, startedAt, System.currentTimeMillis(), context.snapshot(), error);
     }
 
     public Future<?> submit(final String moduleName, final ExecutionContext context) {
@@ -142,6 +186,70 @@ public final class ExecutionEngine implements AutoCloseable {
             futures.add(submit(moduleName, context));
         }
         return Collections.unmodifiableList(futures);
+    }
+
+    /** Runs workflow steps in dependency order and exposes dependency outputs to each step. */
+    public WorkflowResult executeWorkflow(WorkflowPlan plan, ExecutionContext context) {
+        ensureOpen();
+        if (plan == null || context == null) {
+            throw new IllegalArgumentException("plan and context must not be null");
+        }
+        List<WorkflowStep> orderedSteps = topologicalOrder(plan);
+        Map<String, Object> baseInputs = context.snapshot();
+        Map<String, ExecutionResult> stepResults = new LinkedHashMap<String, ExecutionResult>();
+
+        for (WorkflowStep step : orderedSteps) {
+            Map<String, Object> stepInputs = new LinkedHashMap<String, Object>(baseInputs);
+            for (String dependencyId : step.getDependencies()) {
+                stepInputs.putAll(stepResults.get(dependencyId).getOutput());
+            }
+            stepInputs.putAll(step.getInputs());
+            ExecutionContext stepContext = context.child(stepInputs);
+            ExecutionResult result = invoke(step.getModuleName(), stepContext);
+            stepResults.put(step.getId(), result);
+            if (!result.isSuccessful()) {
+                return new WorkflowResult(plan.getName(), WorkflowResult.Status.FAILED,
+                        step.getId(), stepResults, context.snapshot());
+            }
+            context.merge(result.getOutput());
+        }
+        return new WorkflowResult(plan.getName(), WorkflowResult.Status.SUCCEEDED,
+                null, stepResults, context.snapshot());
+    }
+
+    private static List<WorkflowStep> topologicalOrder(WorkflowPlan plan) {
+        Map<String, WorkflowStep> byId = plan.getStepsById();
+        Set<String> placed = new LinkedHashSet<String>();
+        List<WorkflowStep> ordered = new ArrayList<WorkflowStep>();
+        while (ordered.size() < byId.size()) {
+            WorkflowStep next = null;
+            for (WorkflowStep step : byId.values()) {
+                if (placed.contains(step.getId())) {
+                    continue;
+                }
+                boolean ready = true;
+                for (String dependency : step.getDependencies()) {
+                    if (!byId.containsKey(dependency)) {
+                        throw new IllegalArgumentException("Unknown workflow dependency '" + dependency
+                                + "' for step '" + step.getId() + "'");
+                    }
+                    if (!placed.contains(dependency)) {
+                        ready = false;
+                        break;
+                    }
+                }
+                if (ready) {
+                    next = step;
+                    break;
+                }
+            }
+            if (next == null) {
+                throw new IllegalArgumentException("Workflow contains a dependency cycle: " + plan.getName());
+            }
+            placed.add(next.getId());
+            ordered.add(next);
+        }
+        return ordered;
     }
 
     public synchronized ScheduledFuture<?> schedule(String moduleName, ExecutionContext context,
