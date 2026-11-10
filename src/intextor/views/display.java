@@ -5,17 +5,26 @@
  */
 package intextor.views;
 
-import system.core.CallClass;
+import intextor.controllers.primeNumber;
+import java.util.Collections;
+import java.util.List;
+import system.core.ExecutionContext;
+import system.core.ExecutionEngine;
+import system.core.ModuleRegistry;
 
 /**
  *
  * @author Saladin2020
  */
-public class display extends CallClass {
+public class display {
     public display() throws Exception {
-
-        setup("primeNumber");
-        proc("primeNumber");
+        ModuleRegistry registry = new ModuleRegistry();
+        registry.register(new primeNumber());
+        try (ExecutionEngine engine = new ExecutionEngine(registry)) {
+            ExecutionContext context = new ExecutionContext(Collections.<String, Object>singletonMap("limit", 100));
+            engine.execute("primeNumber", context);
+            List<Integer> primes = context.get("primes", List.class);
+            System.out.println("Prime numbers up to 100: " + primes);
+        }
     }
-
 }
